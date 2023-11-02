@@ -398,12 +398,22 @@ func ExportForm(rs io.ReadSeeker, w io.Writer, source string, conf *model.Config
 		return err
 	}
 
-	ok, err := form.ExportForm(ctx.XRefTable, source, w)
+	formGroup, err := form.ExportForm(ctx.XRefTable, source)
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if formGroup == nil {
 		return errors.New("no form fields exported")
+	}
+
+	bb, err := json.MarshalIndent(formGroup, "", "\t")
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(bb)
+	if err != nil {
+		return err
 	}
 
 	return nil

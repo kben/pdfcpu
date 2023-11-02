@@ -17,8 +17,6 @@ limitations under the License.
 package form
 
 import (
-	"encoding/json"
-	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -478,11 +476,11 @@ func fieldsForAnnots(xRefTable *model.XRefTable, annots, fields types.Array) ([]
 }
 
 // ExportForm extracts form data originating from source from xRefTable and writes a JSON representation to w.
-func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, error) {
+func ExportForm(xRefTable *model.XRefTable, source string) (*FormGroup, error) {
 
 	fields, err := fields(xRefTable)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	formGroup := FormGroup{}
@@ -490,13 +488,11 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 
 	form := Form{}
 
-	var ok bool
-
 	for i := 1; i <= xRefTable.PageCount; i++ {
 
 		d, _, _, err := xRefTable.PageDict(i, false)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 
 		o, found := d.Find("Annots")
@@ -506,12 +502,12 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 
 		arr, err := xRefTable.DereferenceArray(o)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 
 		ids, fieldMap, typeMap, err := fieldsForAnnots(xRefTable, arr, fields)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 
 		for _, id := range ids {
@@ -520,7 +516,7 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 
 			d, err := xRefTable.DereferenceDict(indRef)
 			if err != nil {
-				return false, err
+				return nil, err
 			}
 			if len(d) == 0 {
 				continue
@@ -536,7 +532,7 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 			if ft == nil {
 				ft = d.NameEntry("FT")
 				if ft == nil {
-					return false, errors.New("pdfcpu: corrupt form field: missing entry FT")
+					return nil, errors.New("pdfcpu: corrupt form field: missing entry FT")
 				}
 			}
 
@@ -546,62 +542,56 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 				if len(d.ArrayEntry("Kids")) > 0 {
 					rbg, err := extractRadioButtonGroup(xRefTable, i, d, id, locked)
 					if err != nil {
-						return false, err
+						return nil, err
 					}
 					form.RadioButtonGroups = append(form.RadioButtonGroups, rbg)
-					ok = true
 					continue
 				}
 				cb, err := extractCheckBox(i, d, id, locked)
 				if err != nil {
-					return false, err
+					return nil, err
 				}
 				form.CheckBoxes = append(form.CheckBoxes, cb)
-				ok = true
 
 			case "Ch":
 				ff := d.IntEntry("Ff")
 				if ff == nil {
-					return false, errors.New("pdfcpu: corrupt form field: missing entry Ff")
+					return nil, errors.New("pdfcpu: corrupt form field: missing entry Ff")
 				}
 				if primitives.FieldFlags(*ff)&primitives.FieldCombo > 0 {
 					cb, err := extractComboBox(xRefTable, i, d, id, locked)
 					if err != nil {
-						return false, err
+						return nil, err
 					}
 					form.ComboBoxes = append(form.ComboBoxes, cb)
-					ok = true
 					continue
 				}
 				multi := primitives.FieldFlags(*ff)&primitives.FieldMultiselect > 0
 				lb, err := extractListBox(xRefTable, i, d, id, locked, multi)
 				if err != nil {
-					return false, err
+					return nil, err
 				}
 				form.ListBoxes = append(form.ListBoxes, lb)
-				ok = true
 
 			case "Tx":
 
 				df, err := extractDateFormat(xRefTable, d)
 				if err != nil {
-					return false, err
+					return nil, err
 				}
 				if df != nil {
 					df, err := extractDateField(i, d, id, df, locked)
 					if err != nil {
-						return false, err
+						return nil, err
 					}
 					form.DateFields = append(form.DateFields, df)
-					ok = true
 					continue
 				}
 				tf, err := extractTextField(i, d, id, ff, locked)
 				if err != nil {
-					return false, err
+					return nil, err
 				}
 				form.TextFields = append(form.TextFields, tf)
-				ok = true
 			}
 
 		}
@@ -610,12 +600,5 @@ func ExportForm(xRefTable *model.XRefTable, source string, w io.Writer) (bool, e
 
 	formGroup.Forms = []Form{form}
 
-	bb, err := json.MarshalIndent(formGroup, "", "\t")
-	if err != nil {
-		return false, err
-	}
-
-	_, err = w.Write(bb)
-
-	return ok, err
+	return &formGroup, err
 }
