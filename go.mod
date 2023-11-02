@@ -1,4 +1,4 @@
-module github.com/kbn/pdfcpu
+module github.com/kben/pdfcpu
 
 go 1.20
 
